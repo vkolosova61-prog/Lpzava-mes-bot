@@ -5,6 +5,7 @@
     "dockerfilePath": "apps/user-client/Dockerfile"
   },
   "deploy": {
+    "startCommand": "bun apps/user-client/src/index.ts",
     "restartPolicyType": "ALWAYS",
     "restartPolicyMaxRetries": 10
   }

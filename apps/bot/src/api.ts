@@ -82,7 +82,9 @@ export function startApiServer(): void {
 
       const { data, error } = await supabaseAdmin
         .from("Messages")
-        .select("id,user_id,chat_id,sender,text,media_file_id,media_type,timestamp")
+        .select(
+          "id,user_id,chat_id,sender,text,media_file_id,media_type,media_storage_path,media_mime_type,media_size,timestamp"
+        )
         .eq("user_id", userId)
         .order("timestamp", { ascending: true })
         .order("id", { ascending: true });
@@ -91,7 +93,16 @@ export function startApiServer(): void {
         throw error;
       }
 
-      res.json({ messages: data });
+      const messages = await Promise.all(
+        data.map(async (message) => ({
+          ...message,
+          media_url: message.media_storage_path
+            ? await createMediaSignedUrl(message.media_storage_path)
+            : null
+        }))
+      );
+
+      res.json({ messages });
     } catch (error) {
       next(error);
     }
@@ -251,6 +262,19 @@ export function startApiServer(): void {
   app.listen(config.API_PORT, "0.0.0.0", () => {
     console.log(`API server listening on 0.0.0.0:${config.API_PORT}`);
   });
+}
+
+async function createMediaSignedUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.storage
+    .from("message-media")
+    .createSignedUrl(path, 60 * 60);
+
+  if (error) {
+    console.warn("Failed to sign media URL:", error.message);
+    return null;
+  }
+
+  return data.signedUrl;
 }
 
 function requireTelegramAuth(req: Request, res: Response, next: NextFunction): void {

@@ -42,6 +42,7 @@ export function App() {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [activeChat, setActiveChat] = useState<ChatSummary | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [mediaViewerMessage, setMediaViewerMessage] = useState<ChatMessage | null>(null);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [messageLimit, setMessageLimit] = useState(10);
   const [vipInput, setVipInput] = useState("");
@@ -360,7 +361,11 @@ export function App() {
 
           <div className="messages-list">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onOpenMedia={setMediaViewerMessage}
+              />
             ))}
           </div>
         </div>
@@ -421,6 +426,13 @@ export function App() {
           {notice}
         </button>
       ) : null}
+
+      {mediaViewerMessage ? (
+        <MediaViewer
+          message={mediaViewerMessage}
+          onClose={() => setMediaViewerMessage(null)}
+        />
+      ) : null}
     </main>
   );
 }
@@ -438,20 +450,70 @@ function Avatar({ chat, compact = false }: { chat: ChatSummary; compact?: boolea
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onOpenMedia
+}: {
+  message: ChatMessage;
+  onOpenMedia: (message: ChatMessage) => void;
+}) {
   const isBot = message.sender === "bot";
 
   return (
     <article className={`message-bubble ${isBot ? "is-outgoing" : "is-incoming"}`}>
-      {message.media_type ? <MediaPreview mediaType={message.media_type} /> : null}
+      {message.media_type ? (
+        <MediaPreview message={message} onOpen={() => onOpenMedia(message)} />
+      ) : null}
       {message.text ? <p>{message.text}</p> : null}
       <time>{formatMessageTime(message.timestamp)}</time>
     </article>
   );
 }
 
-function MediaPreview({ mediaType }: { mediaType: string }) {
+function MediaPreview({ message, onOpen }: { message: ChatMessage; onOpen: () => void }) {
+  const mediaType = message.media_type ?? "media";
   const Icon = mediaIcon(mediaType);
+
+  if (message.media_url && mediaType === "photo") {
+    return (
+      <button className="media-render media-render-photo" type="button" onClick={onOpen}>
+        <img src={message.media_url} alt="" loading="lazy" />
+      </button>
+    );
+  }
+
+  if (message.media_url && (mediaType === "video" || mediaType === "animation")) {
+    return (
+      <button className="media-render media-render-video" type="button" onClick={onOpen}>
+        <video src={message.media_url} preload="metadata" playsInline />
+        <span className="media-play">
+          <Play size={24} fill="currentColor" />
+        </span>
+      </button>
+    );
+  }
+
+  if (message.media_url && mediaType === "video_note") {
+    return (
+      <button className="media-render media-render-note" type="button" onClick={onOpen}>
+        <video src={message.media_url} preload="metadata" playsInline />
+        <span className="media-play">
+          <Play size={22} fill="currentColor" />
+        </span>
+      </button>
+    );
+  }
+
+  if (message.media_url && (mediaType === "voice" || mediaType === "audio")) {
+    return (
+      <div className="audio-preview">
+        <span className="media-preview-icon">
+          <Icon size={22} />
+        </span>
+        <audio src={message.media_url} controls preload="metadata" />
+      </div>
+    );
+  }
 
   return (
     <div className={`media-preview media-${mediaType}`}>
@@ -460,8 +522,43 @@ function MediaPreview({ mediaType }: { mediaType: string }) {
       </span>
       <span>
         <strong>{mediaLabel(mediaType)}</strong>
-        <small>{mediaHint(mediaType)}</small>
+        <small>{mediaHint(message)}</small>
       </span>
+    </div>
+  );
+}
+
+function MediaViewer({
+  message,
+  onClose
+}: {
+  message: ChatMessage;
+  onClose: () => void;
+}) {
+  const mediaType = message.media_type ?? "media";
+
+  return (
+    <div className="media-viewer" role="dialog" aria-modal="true">
+      <button
+        className="media-viewer-close"
+        type="button"
+        aria-label="Закрыть"
+        onClick={onClose}
+      >
+        <X size={26} />
+      </button>
+      <div className="media-viewer-body">
+        {message.media_url && mediaType === "photo" ? (
+          <img src={message.media_url} alt="" />
+        ) : null}
+        {message.media_url &&
+        (mediaType === "video" || mediaType === "video_note" || mediaType === "animation") ? (
+          <video src={message.media_url} controls autoPlay playsInline />
+        ) : null}
+        {message.media_url && (mediaType === "voice" || mediaType === "audio") ? (
+          <audio src={message.media_url} controls autoPlay />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -499,12 +596,20 @@ function mediaLabel(mediaType: string): string {
   return mediaType.replace("_", " ");
 }
 
-function mediaHint(mediaType: string): string {
-  if (mediaType === "protected_or_failed") {
+function mediaHint(message: ChatMessage): string {
+  if (message.media_type === "protected_or_failed") {
     return "Telegram не дал скопировать файл";
   }
 
-  return "Файл сохранен в dump channel";
+  if (!message.media_url) {
+    return "Файл еще не загружен в Storage";
+  }
+
+  if (message.media_size) {
+    return formatFileSize(message.media_size);
+  }
+
+  return "Открыть";
 }
 
 function mediaIcon(mediaType: string) {
@@ -542,6 +647,14 @@ function sortChats(chats: ChatSummary[]): ChatSummary[] {
       new Date(left.last_message_at).getTime()
     );
   });
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function formatListTime(timestamp: string): string {

@@ -21,6 +21,10 @@ export type ChatMessage = {
   text: string | null;
   media_file_id: string | null;
   media_type: string | null;
+  media_storage_path: string | null;
+  media_mime_type: string | null;
+  media_size: number | null;
+  media_url: string | null;
   timestamp: string;
 };
 

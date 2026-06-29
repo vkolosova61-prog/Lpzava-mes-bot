@@ -3,6 +3,7 @@ import type { NewMessageEvent } from "telegram/events/index.js";
 import { getListenerConfig } from "./config.js";
 import { getPeerProfile, getPeerStorageId } from "./peer.js";
 import { applyRetentionBeforeInsert } from "./retention.js";
+import { uploadMessageMedia, type StoredMedia } from "./storage.js";
 import { supabaseAdmin } from "./supabase.js";
 
 const listenerConfig = getListenerConfig();
@@ -24,14 +25,18 @@ export async function handleNewMessage(
   const originalMediaType = getMediaType(message);
   let mediaType = originalMediaType;
   let mediaFileId: string | null = null;
+  let storedMedia: StoredMedia | null = null;
 
   if (originalMediaType) {
     try {
+      storedMedia = await uploadMessageMedia(client, message, peerId, originalMediaType);
       mediaFileId = await forwardMediaToDump(client, message);
     } catch (error) {
-      mediaType = "protected_or_failed";
-      mediaFileId = null;
-      console.warn("Failed to forward media to dump channel:", formatError(error));
+      if (!storedMedia) {
+        mediaType = "protected_or_failed";
+      }
+
+      console.warn("Failed to store media:", formatError(error));
     }
   }
 
@@ -44,6 +49,9 @@ export async function handleNewMessage(
     text,
     media_file_id: mediaFileId,
     media_type: mediaType,
+    media_storage_path: storedMedia?.path ?? null,
+    media_mime_type: storedMedia?.mimeType ?? null,
+    media_size: storedMedia?.size ?? null,
     timestamp: new Date(message.date * 1000).toISOString()
   });
 

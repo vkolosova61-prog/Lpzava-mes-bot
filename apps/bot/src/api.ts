@@ -7,15 +7,7 @@ import { getMessageLimit, setMessageLimit, supabaseAdmin } from "./supabase.js";
 import { verifyTelegramInitData } from "./telegramAuth.js";
 import { resolveVipInput } from "./vip.js";
 
-const mediaBucket = new S3Client({
-  endpoint: config.S3_ENDPOINT,
-  region: config.S3_REGION,
-  forcePathStyle: config.S3_FORCE_PATH_STYLE,
-  credentials: {
-    accessKeyId: config.S3_ACCESS_KEY_ID,
-    secretAccessKey: config.S3_SECRET_ACCESS_KEY
-  }
-});
+let mediaBucket: S3Client | null = null;
 
 export function startApiServer(): void {
   const app = express();
@@ -277,11 +269,19 @@ export function startApiServer(): void {
 }
 
 async function createMediaSignedUrl(path: string): Promise<string | null> {
+  const bucket = getS3Value("S3_BUCKET", "AWS_BUCKET", "BUCKET_NAME");
+  const client = getMediaBucket();
+
+  if (!bucket || !client) {
+    console.warn("Railway Bucket is not configured; cannot sign media URL.");
+    return null;
+  }
+
   try {
     return await getSignedUrl(
-      mediaBucket,
+      client,
       new GetObjectCommand({
-        Bucket: config.S3_BUCKET,
+        Bucket: bucket,
         Key: path
       }),
       { expiresIn: 60 * 60 }
@@ -290,6 +290,52 @@ async function createMediaSignedUrl(path: string): Promise<string | null> {
     console.warn("Failed to sign media URL:", error);
     return null;
   }
+}
+
+function getMediaBucket(): S3Client | null {
+  if (mediaBucket) {
+    return mediaBucket;
+  }
+
+  const endpoint = getS3Value("S3_ENDPOINT", "AWS_ENDPOINT", "BUCKET_ENDPOINT");
+  const accessKeyId = getS3Value(
+    "S3_ACCESS_KEY_ID",
+    "AWS_ACCESS_KEY_ID",
+    "BUCKET_ACCESS_KEY_ID"
+  );
+  const secretAccessKey = getS3Value(
+    "S3_SECRET_ACCESS_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "BUCKET_SECRET_ACCESS_KEY"
+  );
+
+  if (!endpoint || !accessKeyId || !secretAccessKey) {
+    return null;
+  }
+
+  mediaBucket = new S3Client({
+    endpoint,
+    region: getS3Value("S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION") ?? config.S3_REGION,
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+    credentials: {
+      accessKeyId,
+      secretAccessKey
+    }
+  });
+
+  return mediaBucket;
+}
+
+function getS3Value(...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function requireTelegramAuth(req: Request, res: Response, next: NextFunction): void {

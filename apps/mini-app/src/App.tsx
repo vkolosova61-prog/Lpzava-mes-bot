@@ -72,6 +72,14 @@ export function App() {
   }, [loadChats]);
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadChats().catch((error) => setNotice(error.message));
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [loadChats]);
+
+  useEffect(() => {
     getSettings()
       .then((settings) => setMessageLimit(settings.messageLimit))
       .catch((error) => setNotice(error.message));
@@ -111,6 +119,22 @@ export function App() {
       setNotice(error instanceof Error ? error.message : "Не удалось открыть чат");
     }
   };
+
+  useEffect(() => {
+    if (!activeChat || view !== "chat") {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void getMessages(activeChat.user_id)
+        .then(setMessages)
+        .catch((error) =>
+          setNotice(error instanceof Error ? error.message : "Не удалось обновить чат")
+        );
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [activeChat, view]);
 
   const closeChat = () => {
     setView("contacts");
@@ -602,7 +626,7 @@ function mediaHint(message: ChatMessage): string {
   }
 
   if (!message.media_url) {
-    return "Файл еще не загружен в Storage";
+    return "Файл еще не загружен в Railway Bucket";
   }
 
   if (message.media_size) {

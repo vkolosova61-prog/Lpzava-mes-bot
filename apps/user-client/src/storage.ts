@@ -7,6 +7,8 @@ export type StoredMedia = {
   size: number;
 };
 
+let mediaBucket: Bun.S3Client | null = null;
+
 export async function uploadMessageMedia(
   client: TelegramClient,
   message: Api.Message,
@@ -24,13 +26,61 @@ export async function uploadMessageMedia(
   const safePeerId = String(peerId).replace(/^-/, "m");
   const path = `${safePeerId}/${message.id}-${Date.now()}.${extension}`;
 
-  await Bun.write(Bun.s3.file(path, { type: mimeType }), downloaded);
+  await getMediaBucket().write(path, downloaded, { type: mimeType });
 
   return {
     path,
     mimeType,
     size: downloaded.byteLength
   };
+}
+
+function getMediaBucket(): Bun.S3Client {
+  if (mediaBucket) {
+    return mediaBucket;
+  }
+
+  const bucket = getEnv("S3_BUCKET", "AWS_BUCKET", "BUCKET_NAME");
+  const endpoint = getEnv("S3_ENDPOINT", "AWS_ENDPOINT", "BUCKET_ENDPOINT");
+  const accessKeyId = getEnv(
+    "S3_ACCESS_KEY_ID",
+    "AWS_ACCESS_KEY_ID",
+    "BUCKET_ACCESS_KEY_ID"
+  );
+  const secretAccessKey = getEnv(
+    "S3_SECRET_ACCESS_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "BUCKET_SECRET_ACCESS_KEY"
+  );
+  const region = getEnv("S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION") ?? "auto";
+
+  if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) {
+    throw new Error(
+      "Railway Bucket is not configured. Set S3_BUCKET, S3_ENDPOINT, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY."
+    );
+  }
+
+  mediaBucket = new Bun.S3Client({
+    bucket,
+    endpoint,
+    region,
+    accessKeyId,
+    secretAccessKey
+  });
+
+  return mediaBucket;
+}
+
+function getEnv(...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function getMimeType(message: Api.Message, mediaType: string): string {

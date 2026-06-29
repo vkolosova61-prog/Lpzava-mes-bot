@@ -18,6 +18,7 @@ const rawEnv = {
 const envSchema = z.object({
   BOT_TOKEN: z.string().min(1, "BOT_TOKEN is required"),
   DUMP_CHANNEL_ID: z.coerce.number().int("DUMP_CHANNEL_ID must be an integer"),
+  BOT_POLLING_ENABLED: z.coerce.boolean().default(true),
   API_PORT: z.coerce.number().int().positive().default(3001),
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
   SUPABASE_URL: z.string().url("SUPABASE_URL must be a valid URL"),

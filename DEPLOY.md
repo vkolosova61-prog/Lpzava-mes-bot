@@ -156,12 +156,25 @@ Healthcheck: /health
 ```env
 BOT_TOKEN=...
 DUMP_CHANNEL_ID=-100...
+BOT_POLLING_ENABLED=true
 CORS_ORIGIN=https://your-mini-app.up.railway.app
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 `API_PORT` на Railway не задавай: приложение слушает стандартный Railway `PORT`.
+
+Если Railway показывает `409: Conflict: terminated by other getUpdates request`,
+значит этот же `BOT_TOKEN` запущен в другом процессе. На время диагностики можно
+поставить:
+
+```env
+BOT_POLLING_ENABLED=false
+```
+
+API останется онлайн, но обычный bot polling будет выключен. Для полного
+включения бота нужно остановить все другие экземпляры или перевыпустить токен
+в BotFather.
 
 Для `user-client` создай отдельный Railway service из того же GitHub repo и в Settings укажи:
 

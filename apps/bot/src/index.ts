@@ -19,7 +19,23 @@ bot.catch((error) => {
 
 startApiServer();
 
-void startTelegramBot();
+if (config.BOT_POLLING_ENABLED) {
+  void startTelegramBot();
+} else {
+  console.log("Telegram bot polling is disabled. API server only mode is active.");
+}
+
+process.on("unhandledRejection", (reason) => {
+  if (isGetUpdatesConflict(reason)) {
+    console.warn(
+      "Telegram bot polling conflict reached unhandledRejection. Keeping API alive."
+    );
+    return;
+  }
+
+  console.error("Unhandled rejection:", reason);
+  process.exitCode = 1;
+});
 
 async function startTelegramBot(): Promise<void> {
   try {
@@ -44,8 +60,14 @@ async function startTelegramBot(): Promise<void> {
 }
 
 function isGetUpdatesConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("409") && message.includes("getUpdates")) {
+    return true;
+  }
+
   if (!error || typeof error !== "object") {
-    return false;
+    return message.includes("Conflict") && message.includes("getUpdates");
   }
 
   const maybeError = error as {
@@ -55,14 +77,16 @@ function isGetUpdatesConflict(error: unknown): boolean {
   };
 
   return (
-    maybeError.method === "getUpdates" &&
-    maybeError.error_code === 409 &&
-    Boolean(maybeError.description?.includes("Conflict"))
+    (maybeError.method === "getUpdates" || message.includes("getUpdates")) &&
+    (maybeError.error_code === 409 || message.includes("409")) &&
+    (Boolean(maybeError.description?.includes("Conflict")) || message.includes("Conflict"))
   );
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    bot.stop();
+    if (bot.isRunning()) {
+      bot.stop();
+    }
   });
 }

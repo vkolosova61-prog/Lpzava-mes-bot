@@ -8,33 +8,6 @@ insert into public."Settings" (id, message_limit)
 values (1, 10)
 on conflict (id) do nothing;
 
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values (
-  'message-media',
-  'message-media',
-  false,
-  104857600,
-  array[
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/gif',
-    'video/mp4',
-    'video/webm',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/ogg',
-    'audio/opus',
-    'audio/webm',
-    'application/octet-stream'
-  ]
-)
-on conflict (id) do update
-set
-  public = excluded.public,
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
-
 create table if not exists public."VIP_Users" (
   telegram_id bigint primary key,
   created_at timestamptz not null default now()

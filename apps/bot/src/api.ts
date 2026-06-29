@@ -1,9 +1,21 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
 import { getMessageLimit, setMessageLimit, supabaseAdmin } from "./supabase.js";
 import { verifyTelegramInitData } from "./telegramAuth.js";
 import { resolveVipInput } from "./vip.js";
+
+const mediaBucket = new S3Client({
+  endpoint: config.S3_ENDPOINT,
+  region: config.S3_REGION,
+  forcePathStyle: config.S3_FORCE_PATH_STYLE,
+  credentials: {
+    accessKeyId: config.S3_ACCESS_KEY_ID,
+    secretAccessKey: config.S3_SECRET_ACCESS_KEY
+  }
+});
 
 export function startApiServer(): void {
   const app = express();
@@ -265,16 +277,19 @@ export function startApiServer(): void {
 }
 
 async function createMediaSignedUrl(path: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin.storage
-    .from("message-media")
-    .createSignedUrl(path, 60 * 60);
-
-  if (error) {
-    console.warn("Failed to sign media URL:", error.message);
+  try {
+    return await getSignedUrl(
+      mediaBucket,
+      new GetObjectCommand({
+        Bucket: config.S3_BUCKET,
+        Key: path
+      }),
+      { expiresIn: 60 * 60 }
+    );
+  } catch (error) {
+    console.warn("Failed to sign media URL:", error);
     return null;
   }
-
-  return data.signedUrl;
 }
 
 function requireTelegramAuth(req: Request, res: Response, next: NextFunction): void {

@@ -1,6 +1,5 @@
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
-import { supabaseAdmin } from "./supabase.js";
 
 export type StoredMedia = {
   path: string;
@@ -25,16 +24,7 @@ export async function uploadMessageMedia(
   const safePeerId = String(peerId).replace(/^-/, "m");
   const path = `${safePeerId}/${message.id}-${Date.now()}.${extension}`;
 
-  const { error } = await supabaseAdmin.storage
-    .from("message-media")
-    .upload(path, downloaded, {
-      contentType: mimeType,
-      upsert: false
-    });
-
-  if (error) {
-    throw error;
-  }
+  await Bun.write(Bun.s3.file(path, { type: mimeType }), downloaded);
 
   return {
     path,

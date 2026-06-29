@@ -75,6 +75,14 @@ alter table public."Messages"
   add column if not exists media_size integer,
   add column if not exists timestamp timestamptz not null default now();
 
+update public."Messages"
+set sender = 'user'
+where sender is null or sender not in ('user', 'bot');
+
+alter table public."Messages"
+  alter column sender set default 'user',
+  alter column sender set not null;
+
 do $$
 begin
   if not exists (

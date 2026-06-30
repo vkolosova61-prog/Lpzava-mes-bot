@@ -6,11 +6,12 @@
   "scripts": {
     "auth": "tsx src/auth.ts",
     "dev": "bun --watch src/index.ts",
-    "start": "bun src/index.ts",
+    "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1076.0",
     "dotenv": "^16.4.5",
     "pg": "^8.22.0",
     "qrcode-terminal": "^0.12.0",

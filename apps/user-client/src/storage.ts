@@ -1,3 +1,4 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
 
@@ -7,7 +8,12 @@ export type StoredMedia = {
   size: number;
 };
 
-let mediaBucket: Bun.S3Client | null = null;
+type MediaBucket = {
+  bucket: string;
+  client: S3Client;
+};
+
+let mediaBucket: MediaBucket | null = null;
 
 export async function uploadMessageMedia(
   client: TelegramClient,
@@ -26,7 +32,15 @@ export async function uploadMessageMedia(
   const safePeerId = String(peerId).replace(/^-/, "m");
   const path = `${safePeerId}/${message.id}-${Date.now()}.${extension}`;
 
-  await getMediaBucket().write(path, downloaded, { type: mimeType });
+  const media = getMediaBucket();
+  await media.client.send(
+    new PutObjectCommand({
+      Bucket: media.bucket,
+      Key: path,
+      Body: downloaded,
+      ContentType: mimeType
+    })
+  );
 
   return {
     path,
@@ -35,7 +49,7 @@ export async function uploadMessageMedia(
   };
 }
 
-function getMediaBucket(): Bun.S3Client {
+function getMediaBucket(): MediaBucket {
   if (mediaBucket) {
     return mediaBucket;
   }
@@ -60,13 +74,18 @@ function getMediaBucket(): Bun.S3Client {
     );
   }
 
-  mediaBucket = new Bun.S3Client({
+  mediaBucket = {
     bucket,
-    endpoint,
-    region,
-    accessKeyId,
-    secretAccessKey
-  });
+    client: new S3Client({
+      endpoint,
+      region,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId,
+        secretAccessKey
+      }
+    })
+  };
 
   return mediaBucket;
 }

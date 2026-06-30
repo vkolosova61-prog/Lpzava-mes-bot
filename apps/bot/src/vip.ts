@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabase.js";
+import { db } from "./db.js";
 
 type VipResolution =
   | { telegramId: number; source: "id" | "known_username" | "known_phone" }
@@ -68,17 +68,10 @@ async function findKnownUser(
   value: string
 ): Promise<{ telegram_id: number } | null> {
   const column = kind === "username" ? "username" : "phone";
+  const { rows } = await db.query<{ telegram_id: number }>(
+    `select telegram_id from public."Users" where ${column} ilike $1 limit 1`,
+    [value]
+  );
 
-  const { data, error } = await supabaseAdmin
-    .from("Users")
-    .select("telegram_id")
-    .ilike(column, value)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
+  return rows[0] ?? null;
 }
-

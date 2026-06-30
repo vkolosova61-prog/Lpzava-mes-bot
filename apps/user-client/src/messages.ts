@@ -4,7 +4,7 @@ import { getListenerConfig } from "./config.js";
 import { getPeerProfile, getPeerStorageId } from "./peer.js";
 import { applyRetentionBeforeInsert } from "./retention.js";
 import { uploadMessageMedia, type StoredMedia } from "./storage.js";
-import { supabaseAdmin } from "./supabase.js";
+import { db } from "./db.js";
 
 const listenerConfig = getListenerConfig();
 
@@ -42,22 +42,24 @@ export async function handleNewMessage(
 
   await applyRetentionBeforeInsert(peerId);
 
-  const { error } = await supabaseAdmin.from("Messages").insert({
-    user_id: peerId,
-    chat_id: peerId,
-    sender: message.out ? "bot" : "user",
-    text,
-    media_file_id: mediaFileId,
-    media_type: mediaType,
-    media_storage_path: storedMedia?.path ?? null,
-    media_mime_type: storedMedia?.mimeType ?? null,
-    media_size: storedMedia?.size ?? null,
-    timestamp: new Date(message.date * 1000).toISOString()
-  });
-
-  if (error) {
-    throw error;
-  }
+  await db.query(
+    `insert into public."Messages"
+      (user_id, chat_id, sender, text, media_file_id, media_type,
+        media_storage_path, media_mime_type, media_size, timestamp)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      peerId,
+      peerId,
+      message.out ? "bot" : "user",
+      text,
+      mediaFileId,
+      mediaType,
+      storedMedia?.path ?? null,
+      storedMedia?.mimeType ?? null,
+      storedMedia?.size ?? null,
+      new Date(message.date * 1000).toISOString()
+    ]
+  );
 }
 
 async function upsertPeerProfile(
@@ -68,22 +70,26 @@ async function upsertPeerProfile(
   const entity = (await client.getEntity(peer)) as Api.TypeUser | Api.TypeChat;
   const profile = getPeerProfile(entity, peerId);
 
-  const { error } = await supabaseAdmin.from("Users").upsert(
-    {
-      telegram_id: profile.telegramId,
-      username: profile.username,
-      phone: profile.phone,
-      first_name: profile.firstName,
-      last_name: profile.lastName,
-      display_name: profile.displayName,
-      last_seen_at: new Date().toISOString()
-    },
-    { onConflict: "telegram_id" }
+  await db.query(
+    `insert into public."Users"
+      (telegram_id, username, phone, first_name, last_name, display_name, last_seen_at)
+    values ($1, $2, $3, $4, $5, $6, now())
+    on conflict (telegram_id) do update set
+      username = excluded.username,
+      phone = excluded.phone,
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      display_name = excluded.display_name,
+      last_seen_at = now()`,
+    [
+      profile.telegramId,
+      profile.username,
+      profile.phone,
+      profile.firstName,
+      profile.lastName,
+      profile.displayName
+    ]
   );
-
-  if (error) {
-    throw error;
-  }
 }
 
 async function forwardMediaToDump(

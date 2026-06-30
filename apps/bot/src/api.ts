@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
-import { getMessageLimit, setMessageLimit, supabaseAdmin } from "./supabase.js";
+import { db, getMessageLimit, setMessageLimit } from "./db.js";
 import { verifyTelegramInitData } from "./telegramAuth.js";
 import { resolveVipInput } from "./vip.js";
 
@@ -32,17 +32,10 @@ export function startApiServer(): void {
   app.get("/api/chats", async (req, res, next) => {
     try {
       const query = String(req.query.q ?? "").trim().toLowerCase();
-      const { data, error } = await supabaseAdmin
-        .from("Chat_List")
-        .select("*")
-        .order("last_message_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
+      const { rows } = await db.query('select * from public."Chat_List" order by last_message_at desc');
 
       const chats = query
-        ? data.filter((chat) =>
+        ? rows.filter((chat) =>
             [
               chat.display_name,
               chat.username,
@@ -52,7 +45,7 @@ export function startApiServer(): void {
               .filter(Boolean)
               .some((value) => String(value).toLowerCase().includes(query))
           )
-        : data;
+        : rows;
 
       chats.sort((left, right) => {
         if (left.is_pinned && !right.is_pinned) {
@@ -84,21 +77,17 @@ export function startApiServer(): void {
         return;
       }
 
-      const { data, error } = await supabaseAdmin
-        .from("Messages")
-        .select(
-          "id,user_id,chat_id,sender,text,media_file_id,media_type,media_storage_path,media_mime_type,media_size,timestamp"
-        )
-        .eq("user_id", userId)
-        .order("timestamp", { ascending: true })
-        .order("id", { ascending: true });
-
-      if (error) {
-        throw error;
-      }
+      const { rows } = await db.query(
+        `select id, user_id, chat_id, sender, text, media_file_id, media_type,
+          media_storage_path, media_mime_type, media_size, timestamp
+        from public."Messages"
+        where user_id = $1
+        order by timestamp asc, id asc`,
+        [userId]
+      );
 
       const messages = await Promise.all(
-        data.map(async (message) => ({
+        rows.map(async (message) => ({
           ...message,
           media_url: message.media_storage_path
             ? await createMediaSignedUrl(message.media_storage_path)
@@ -121,13 +110,10 @@ export function startApiServer(): void {
         return;
       }
 
-      const { error } = await supabaseAdmin
-        .from("VIP_Users")
-        .upsert({ telegram_id: userId }, { onConflict: "telegram_id" });
-
-      if (error) {
-        throw error;
-      }
+      await db.query(
+        'insert into public."VIP_Users" (telegram_id) values ($1) on conflict (telegram_id) do nothing',
+        [userId]
+      );
 
       res.json({ telegramId: userId, isFavorite: true });
     } catch (error) {
@@ -144,14 +130,7 @@ export function startApiServer(): void {
         return;
       }
 
-      const { error } = await supabaseAdmin
-        .from("VIP_Users")
-        .delete()
-        .eq("telegram_id", userId);
-
-      if (error) {
-        throw error;
-      }
+      await db.query('delete from public."VIP_Users" where telegram_id = $1', [userId]);
 
       res.json({ telegramId: userId, isFavorite: false });
     } catch (error) {
@@ -168,13 +147,10 @@ export function startApiServer(): void {
         return;
       }
 
-      const { error } = await supabaseAdmin
-        .from("Pinned_Chats")
-        .upsert({ telegram_id: userId }, { onConflict: "telegram_id" });
-
-      if (error) {
-        throw error;
-      }
+      await db.query(
+        'insert into public."Pinned_Chats" (telegram_id) values ($1) on conflict (telegram_id) do nothing',
+        [userId]
+      );
 
       res.json({ telegramId: userId, isPinned: true });
     } catch (error) {
@@ -191,14 +167,7 @@ export function startApiServer(): void {
         return;
       }
 
-      const { error } = await supabaseAdmin
-        .from("Pinned_Chats")
-        .delete()
-        .eq("telegram_id", userId);
-
-      if (error) {
-        throw error;
-      }
+      await db.query('delete from public."Pinned_Chats" where telegram_id = $1', [userId]);
 
       res.json({ telegramId: userId, isPinned: false });
     } catch (error) {
@@ -241,13 +210,10 @@ export function startApiServer(): void {
         return;
       }
 
-      const { error } = await supabaseAdmin
-        .from("VIP_Users")
-        .upsert({ telegram_id: resolved.telegramId }, { onConflict: "telegram_id" });
-
-      if (error) {
-        throw error;
-      }
+      await db.query(
+        'insert into public."VIP_Users" (telegram_id) values ($1) on conflict (telegram_id) do nothing',
+        [resolved.telegramId]
+      );
 
       res.json({
         telegramId: resolved.telegramId,

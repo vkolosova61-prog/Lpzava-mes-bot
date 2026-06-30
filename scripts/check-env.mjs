@@ -27,13 +27,11 @@ if (fs.existsSync(envPath)) {
 const required = [
   "BOT_TOKEN",
   "DUMP_CHANNEL_ID",
-  "API_PORT",
   "CORS_ORIGIN",
   "TELEGRAM_API_ID",
   "TELEGRAM_API_HASH",
   "TELEGRAM_SESSION",
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
+  "DATABASE_URL",
   "S3_BUCKET",
   "S3_ENDPOINT",
   "S3_REGION",
@@ -55,7 +53,7 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-const urlKeys = ["CORS_ORIGIN", "SUPABASE_URL", "S3_ENDPOINT", "VITE_API_BASE_URL"];
+const urlKeys = ["CORS_ORIGIN", "DATABASE_URL", "S3_ENDPOINT", "VITE_API_BASE_URL"];
 const invalidUrls = urlKeys.filter((key) => {
   try {
     new URL(process.env[key]);

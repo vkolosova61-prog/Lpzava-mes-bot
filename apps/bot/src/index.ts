@@ -2,7 +2,7 @@ import { Bot } from "grammy";
 import { startApiServer } from "./api.js";
 import { config } from "./config.js";
 import { handleIncomingMessage } from "./messages.js";
-import { getMessageLimit } from "./supabase.js";
+import { getMessageLimit } from "./db.js";
 
 const bot = new Bot(config.BOT_TOKEN);
 

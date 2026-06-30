@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { config } from "./config.js";
-import { getMessageLimit, supabaseAdmin } from "./supabase.js";
+import { db, getMessageLimit } from "./db.js";
 
 type TelegramMessage = NonNullable<Context["message"]>;
 
@@ -99,18 +99,12 @@ async function saveMessageWithRetention(input: StoredMessageInput): Promise<void
     await deleteOldMessagesBeforeInsert(input.userId, messageLimit);
   }
 
-  const { error } = await supabaseAdmin.from("Messages").insert({
-    user_id: input.userId,
-    chat_id: input.chatId,
-    sender: "user",
-    text: input.text,
-    media_file_id: input.mediaFileId,
-    media_type: input.mediaType
-  });
-
-  if (error) {
-    throw error;
-  }
+  await db.query(
+    `insert into public."Messages"
+      (user_id, chat_id, sender, text, media_file_id, media_type)
+    values ($1, $2, 'user', $3, $4, $5)`,
+    [input.userId, input.chatId, input.text, input.mediaFileId, input.mediaType]
+  );
 }
 
 async function upsertUserProfile(user: TelegramMessage["from"]): Promise<void> {
@@ -123,21 +117,18 @@ async function upsertUserProfile(user: TelegramMessage["from"]): Promise<void> {
   const username = "username" in user ? user.username ?? null : null;
   const displayName = buildDisplayName(user);
 
-  const { error } = await supabaseAdmin.from("Users").upsert(
-    {
-      telegram_id: user.id,
-      username,
-      first_name: firstName,
-      last_name: lastName,
-      display_name: displayName,
-      last_seen_at: new Date().toISOString()
-    },
-    { onConflict: "telegram_id" }
+  await db.query(
+    `insert into public."Users"
+      (telegram_id, username, first_name, last_name, display_name, last_seen_at)
+    values ($1, $2, $3, $4, $5, now())
+    on conflict (telegram_id) do update set
+      username = excluded.username,
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      display_name = excluded.display_name,
+      last_seen_at = now()`,
+    [user.id, username, firstName, lastName, displayName]
   );
-
-  if (error) {
-    throw error;
-  }
 }
 
 async function upsertContactProfile(message: TelegramMessage): Promise<void> {
@@ -148,23 +139,28 @@ async function upsertContactProfile(message: TelegramMessage): Promise<void> {
   const contact = message.contact;
   const displayName = [contact.first_name, contact.last_name].filter(Boolean).join(" ");
 
-  const { error } = await supabaseAdmin.from("Users").upsert(
-    {
-      telegram_id: contact.user_id,
-      phone: contact.phone_number.startsWith("+")
-        ? contact.phone_number
-        : `+${contact.phone_number}`,
-      first_name: contact.first_name,
-      last_name: contact.last_name ?? null,
-      display_name: displayName || `User ${contact.user_id}`,
-      last_seen_at: new Date().toISOString()
-    },
-    { onConflict: "telegram_id" }
-  );
+  const phone = contact.phone_number.startsWith("+")
+    ? contact.phone_number
+    : `+${contact.phone_number}`;
 
-  if (error) {
-    throw error;
-  }
+  await db.query(
+    `insert into public."Users"
+      (telegram_id, phone, first_name, last_name, display_name, last_seen_at)
+    values ($1, $2, $3, $4, $5, now())
+    on conflict (telegram_id) do update set
+      phone = excluded.phone,
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      display_name = excluded.display_name,
+      last_seen_at = now()`,
+    [
+      contact.user_id,
+      phone,
+      contact.first_name,
+      contact.last_name ?? null,
+      displayName || `User ${contact.user_id}`
+    ]
+  );
 }
 
 function buildDisplayName(user: TelegramMessage["from"] | UserFromGetMe): string {
@@ -185,50 +181,36 @@ function buildDisplayName(user: TelegramMessage["from"] | UserFromGetMe): string
 }
 
 async function isVipUser(userId: number): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("VIP_Users")
-    .select("telegram_id")
-    .eq("telegram_id", userId)
-    .maybeSingle();
+  const { rowCount } = await db.query(
+    'select 1 from public."VIP_Users" where telegram_id = $1 limit 1',
+    [userId]
+  );
 
-  if (error) {
-    throw error;
-  }
-
-  return Boolean(data);
+  return (rowCount ?? 0) > 0;
 }
 
 async function deleteOldMessagesBeforeInsert(
   userId: number,
   messageLimit: number
 ): Promise<void> {
-  const { count, error: countError } = await supabaseAdmin
-    .from("Messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId);
-
-  if (countError) {
-    throw countError;
-  }
-
-  const currentCount = count ?? 0;
+  const { rows: countRows } = await db.query<{ count: number }>(
+    'select count(*)::int as count from public."Messages" where user_id = $1',
+    [userId]
+  );
+  const currentCount = countRows[0]?.count ?? 0;
   const messagesToDelete = currentCount - messageLimit + 1;
 
   if (messagesToDelete <= 0) {
     return;
   }
 
-  const { data: oldestMessages, error: selectError } = await supabaseAdmin
-    .from("Messages")
-    .select("id")
-    .eq("user_id", userId)
-    .order("timestamp", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(messagesToDelete);
-
-  if (selectError) {
-    throw selectError;
-  }
+  const { rows: oldestMessages } = await db.query<{ id: number }>(
+    `select id from public."Messages"
+    where user_id = $1
+    order by timestamp asc, id asc
+    limit $2`,
+    [userId, messagesToDelete]
+  );
 
   const idsToDelete = oldestMessages.map((message) => message.id);
 
@@ -236,14 +218,9 @@ async function deleteOldMessagesBeforeInsert(
     return;
   }
 
-  const { error: deleteError } = await supabaseAdmin
-    .from("Messages")
-    .delete()
-    .in("id", idsToDelete);
-
-  if (deleteError) {
-    throw deleteError;
-  }
+  await db.query('delete from public."Messages" where id = any($1::bigint[])', [
+    idsToDelete
+  ]);
 }
 
 function formatError(error: unknown): string {

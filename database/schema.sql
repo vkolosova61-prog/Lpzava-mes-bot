@@ -97,12 +97,6 @@ begin
 end;
 $$;
 
-alter table public."Settings" enable row level security;
-alter table public."VIP_Users" enable row level security;
-alter table public."Pinned_Chats" enable row level security;
-alter table public."Users" enable row level security;
-alter table public."Messages" enable row level security;
-
 create index if not exists messages_user_timestamp_desc_idx
   on public."Messages" (user_id, timestamp desc, id desc);
 

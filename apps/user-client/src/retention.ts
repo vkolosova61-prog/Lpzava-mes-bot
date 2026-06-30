@@ -1,4 +1,4 @@
-import { getMessageLimit, supabaseAdmin } from "./supabase.js";
+import { db, getMessageLimit } from "./db.js";
 
 export async function applyRetentionBeforeInsert(peerId: number): Promise<void> {
   if (await isVipPeer(peerId)) {
@@ -6,60 +6,38 @@ export async function applyRetentionBeforeInsert(peerId: number): Promise<void> 
   }
 
   const messageLimit = await getMessageLimit();
-  const { count, error: countError } = await supabaseAdmin
-    .from("Messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", peerId);
-
-  if (countError) {
-    throw countError;
-  }
-
-  const messagesToDelete = (count ?? 0) - messageLimit + 1;
+  const { rows: countRows } = await db.query<{ count: number }>(
+    'select count(*)::int as count from public."Messages" where user_id = $1',
+    [peerId]
+  );
+  const messagesToDelete = (countRows[0]?.count ?? 0) - messageLimit + 1;
 
   if (messagesToDelete <= 0) {
     return;
   }
 
-  const { data, error: selectError } = await supabaseAdmin
-    .from("Messages")
-    .select("id")
-    .eq("user_id", peerId)
-    .order("timestamp", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(messagesToDelete);
+  const { rows } = await db.query<{ id: number }>(
+    `select id from public."Messages"
+    where user_id = $1
+    order by timestamp asc, id asc
+    limit $2`,
+    [peerId, messagesToDelete]
+  );
 
-  if (selectError) {
-    throw selectError;
-  }
-
-  const ids = data.map((message) => message.id);
+  const ids = rows.map((message) => message.id);
 
   if (ids.length === 0) {
     return;
   }
 
-  const { error: deleteError } = await supabaseAdmin
-    .from("Messages")
-    .delete()
-    .in("id", ids);
-
-  if (deleteError) {
-    throw deleteError;
-  }
+  await db.query('delete from public."Messages" where id = any($1::bigint[])', [ids]);
 }
 
 async function isVipPeer(peerId: number): Promise<boolean> {
-  const { data, error } = await supabaseAdmin
-    .from("VIP_Users")
-    .select("telegram_id")
-    .eq("telegram_id", peerId)
-    .maybeSingle();
+  const { rowCount } = await db.query(
+    'select 1 from public."VIP_Users" where telegram_id = $1 limit 1',
+    [peerId]
+  );
 
-  if (error) {
-    throw error;
-  }
-
-  return Boolean(data);
+  return (rowCount ?? 0) > 0;
 }
-
